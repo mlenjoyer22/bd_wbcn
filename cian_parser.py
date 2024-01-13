@@ -135,7 +135,7 @@ class Flat():
         # for tag in script_tags:
         #     if tag.text != None:
                 if self.lat==None and 'coordinates' in str(tag.text):
-                    self.lat, self.long = tag.text.replace('"lng":','').split('"coordinates":{"lat":')[1].replace('}',',').split(',')[:2]
+                    self.lat, self.lng = tag.text.replace('"lng":','').split('"coordinates":{"lat":')[1].replace('}',',').split(',')[:2]
                     #print(self.lat, self.long)                
         self.address = soup.find("div", {"data-name":"Geo"}).find("span", {"itemprop":"name"})['content']
         self.sq = float(soup.find("h1", {'class':"a10a3f92e9--title--vlZwT"}).get_text().split(' ')[-2:-1][0].replace(',', '.'))
