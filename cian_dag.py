@@ -1,3 +1,12 @@
+import requests
+import pandas as pd
+from airflow import DAG
+from sqlalchemy.engine import URL
+from sqlalchemy import text
+from sqlalchemy import create_engine
+from airflow.operators.python import PythonOperator
+import datetime
+import logging
 from bs4 import BeautifulSoup
 import json
 import time
@@ -14,17 +23,6 @@ from selenium import webdriver
 # - это нужно чтобы единообразно обрабатывать даты обновления объявлений, такие как "сегодня" и "вчера"
 locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
 
-class WebDriver:
-    def __init__(self):
-        chrome_options = webdriver.ChromeOptions()
-        self.driver = webdriver.Chrome( options=chrome_options)            
-
-    def __enter__(self):
-        return self.driver
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.driver.quit()
-
 ### GLOBAL CONST
 DEBUG=True
 path_to_data = './spaces_data.csv'
@@ -36,15 +34,35 @@ pattern = re.compile(r"https://www\.cian\.([A-Za-z0-9]+(/[A-Za-z0-9]+)+)/\&*", r
 # as base i took some filters - выбрал некоторые интересные мне фильтры
 start_url = 'https://www.cian.ru/cat.php?deal_type=rent&engine_version=2&minarea=30&offer_type=offices&office_type[0]=2&office_type[1]=3&office_type[2]=5&office_type[3]=11&office_type[4]=12&region=1'
 ####
+AIM_COUNT = 300
+####
 
-# OK      
+default_args={
+    'owner':'Obarskaya Tatiana',
+    'email':'obarskaia.tatiana@gmail.com',
+    'start_date': datetime.datetime(2023, 11, 27),
+    'email_on_failure': False,
+    'email_on_retry': False,
+}
+
+class WebDriver:
+    def __init__(self):
+        chrome_options = webdriver.ChromeOptions()
+        self.driver = webdriver.Chrome( options=chrome_options)            
+
+    def __enter__(self):
+        return self.driver
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.driver.quit()
+
+
 def get_count_spaces(driver):   
     driver.get(start_url)
     soup = BeautifulSoup(driver.page_source, 'lxml')
     count_spaces = int(''.join(re.sub(r'\<[^>]*\>', '', str(soup.find('h5'))).split(' ')[1:-1]))
     return count_spaces
 
-# собираем все ссылки со страницы с квартирами
 def get_all_links(driver,url, spaces, count, debug=False):
     start_val = len(spaces)
     pattern = re.compile(r"(https://www\.cian\.[A-Za-z0-9]+(/[A-Za-z0-9]+)+)/\?*", re.IGNORECASE)
@@ -54,23 +72,19 @@ def get_all_links(driver,url, spaces, count, debug=False):
         source = pattern.match(elem.get_attribute("href"))
         if source:
             source = source.group(1)
-            #print(source)
             if "rent/commercial" in source:            
                 spaces.add(source)
     diff = len(spaces) - start_val
     if debug:
-        print(f"На этой странице нашли {diff} предложений,\nзначит нужно будет обойти еще {math.ceil((count - len(spaces))/diff)} страниц")
+        logging.info(f"Got {diff} offer on this page,\nleft {math.ceil((count - len(spaces))/diff)} pages")
     return len(spaces)
 
 def get_all_spaces(driver, count):
     count_spaces = get_count_spaces(driver)
     current_url = start_url
-    spaces = set() # готовим множетсво под ссылки на квартиры
+    spaces = set()
     spaces_at_page = get_all_links(driver, current_url, spaces, count, DEBUG)
-    # можно было бы парсить ссылки на следующую страницу и ходить по ним,
-    # но кажется проще итерироваться по номерам страниц добавляя к исходной ссылке 
-    # &p={i} - для i-й страницы
-    i = 2 # первую страницу уже обработали
+    i = 2
     while len(spaces) < count and i < math.floor(count_spaces/spaces_at_page):
         try:
             get_all_links(driver, current_url+f'&p={i}', spaces, count, DEBUG)
@@ -78,7 +92,7 @@ def get_all_spaces(driver, count):
             pass        
         i+=1
     if DEBUG:
-        print(f"Спарсили {len(spaces)} предложений")
+        logging.info(f"Got {len(spaces)} offers")
     return list(spaces)
 
 def parse_space(driver, ref):
@@ -87,9 +101,8 @@ def parse_space(driver, ref):
     try:
         flat = Flat(ref, soup)
         return flat.to_df()
-    except Exception as e:
-        print(str(e))
-        print(ref)
+    except Exception as e:        
+        logging.info(str(e) + ' ' + ref + '_problem object')
     return None
 
 class Flat():
@@ -109,23 +122,16 @@ class Flat():
         for tag in script_tags:
             if tag.text != None:
                 if self.price == None and  'dealType' in str(tag.text):
-                    #print(str(tag.text).split('"pageviewSite",')[1][:-1])
                     js_content = json.loads(str(tag.text).split('"pageviewSite",')[1][:-1])
                     self.price = js_content['products'][0]['price']
                     self.podSnos = js_content['products'][0]['podSnos']
                     self.by_owner = js_content['products'][0]['owner']
-                    self.phone = js_content['page']['offerPhone']
-        # script_tags = soup.find_all('script type="text/javascript"')
-        # for tag in script_tags:
-        #     if tag.text != None:
+                    self.phone = js_content['page']['offerPhone']        
                 if self.lat==None and 'coordinates' in str(tag.text):
-                    self.lat, self.lng = tag.text.replace('"lng":','').split('"coordinates":{"lat":')[1].replace('}',',').split(',')[:2]
-                    #print(self.lat, self.long)                
+                    self.lat, self.lng = tag.text.replace('"lng":','').split('"coordinates":{"lat":')[1].replace('}',',').split(',')[:2]                    
         self.address = soup.find("div", {"data-name":"Geo"}).find("span", {"itemprop":"name"})['content']
         self.sq = float(soup.find("h1", {'class':"a10a3f92e9--title--vlZwT"}).get_text().split(' ')[-2:-1][0].replace(',', '.'))
-        
-
-    # кастим класс к датафрейму                
+                   
     def to_df(self):
         data = {
             'ref': self.ref,
@@ -139,19 +145,18 @@ class Flat():
             'lng':self.lng
         }
         df = pd.DataFrame(data, index=[0])
-        return df
+        return df    
 
 
-if __name__ == '__main__':
+def _pipeline():
+    logging.info('Program has started. We will get actual spaces for rent from cian')
     common_df = pd.DataFrame()
     with WebDriver() as driver:
         count_spaces = get_count_spaces(driver)
         if (DEBUG):
-            print(count_spaces)
+            logging.info(f"Got {count_spaces} spaces")
         time.sleep(1)
-        # по умолчанию парсим по 1000 объектов в сутки
-        list_spaces = get_all_spaces(driver, 10)
-        progress = 0
+        list_spaces = get_all_spaces(driver, AIM_COUNT)        
         cur_flat_df = pd.DataFrame()
         for space in list_spaces:            
             time.sleep(1)
@@ -162,6 +167,21 @@ if __name__ == '__main__':
             finally:
                 if not cur_flat_df.empty:
                     common_df = pd.concat([common_df,cur_flat_df])   
-                    if DEBUG:
-                        print('success concat')                             
+                if DEBUG:
+                    logging.info('success concat')                             
         common_df.to_csv(path_to_data, index=False)
+    logging.info('We got ')
+
+with DAG(
+    dag_id='wb_parse_status',
+    default_args=default_args,
+    description='Parsing wb pvz statuses and coordinates',
+    schedule=None, #"0 0-23/4 * * *",
+    catchup=False,
+) as dag:
+
+    wb_parsing=PythonOperator(
+        task_id = 'pipeline',
+        python_callable=_pipeline,
+    )
+    wb_parsing
