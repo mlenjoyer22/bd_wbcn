@@ -40,8 +40,12 @@ start_url = 'https://www.cian.ru/cat.php?deal_type=rent&engine_version=2&minarea
 # OK      
 def get_count_spaces(driver):   
     driver.get(start_url)
-    soup = BeautifulSoup(driver.page_source, 'lxml')
-    count_spaces = int(''.join(re.sub(r'\<[^>]*\>', '', str(soup.find('h5'))).split(' ')[1:-1]))
+    soup = BeautifulSoup(driver.page_source, 'lxml')    
+    count_spaces = int(re.findall('(\s+([0-9]+\s+)+)', soup.find("h5", 
+            {"class":"_32bbee5fda--color_black_100--kPHhJ _32bbee5fda--lineHeight_20px--tUURJ _32bbee5fda--fontWeight_bold--ePDnv _32bbee5fda--fontSize_14px--TCfeJ _32bbee5fda--display_block--pDAEx _32bbee5fda--text--g9xAG _32bbee5fda--text_letterSpacing__normal--xbqP6"}).text
+                )[0][0].replace(' ', ''))
+    #print(count_spaces)
+    #count_spaces = int(''.join(re.sub(r'\<[^>]*\>', '', str(soup.find('h5'))).split(' ')[1:-1]))
     return count_spaces
 
 # собираем все ссылки со страницы с квартирами
@@ -62,8 +66,8 @@ def get_all_links(driver,url, spaces, count, debug=False):
         print(f"На этой странице нашли {diff} предложений,\nзначит нужно будет обойти еще {math.ceil((count - len(spaces))/diff)} страниц")
     return len(spaces)
 
-def get_all_spaces(driver, count):
-    count_spaces = get_count_spaces(driver)
+def get_all_spaces(driver, count_spaces, count):
+    #count_spaces = get_count_spaces(driver)
     current_url = start_url
     spaces = set() # готовим множетсво под ссылки на квартиры
     spaces_at_page = get_all_links(driver, current_url, spaces, count, DEBUG)
@@ -146,22 +150,22 @@ if __name__ == '__main__':
     common_df = pd.DataFrame()
     with WebDriver() as driver:
         count_spaces = get_count_spaces(driver)
-        if (DEBUG):
-            print(count_spaces)
-        time.sleep(1)
-        # по умолчанию парсим по 1000 объектов в сутки
-        list_spaces = get_all_spaces(driver, 10)
-        progress = 0
-        cur_flat_df = pd.DataFrame()
-        for space in list_spaces:            
-            time.sleep(1)
-            try:
-                cur_flat_df = parse_space(driver, space)
-            except:
-                driver = WebDriver()
-            finally:
-                if not cur_flat_df.empty:
-                    common_df = pd.concat([common_df,cur_flat_df])   
-                    if DEBUG:
-                        print('success concat')                             
-        common_df.to_csv(path_to_data, index=False)
+        # if (DEBUG):
+        #     print(count_spaces)
+        # time.sleep(1)
+        # # по умолчанию парсим по 1000 объектов в сутки
+        # list_spaces = get_all_spaces(driver, count_spaces, 10)
+        # progress = 0
+        # cur_flat_df = pd.DataFrame()
+        # for space in list_spaces:            
+        #     time.sleep(1)
+        #     try:
+        #         cur_flat_df = parse_space(driver, space)
+        #     except:
+        #         driver = WebDriver()
+        #     finally:
+        #         if not cur_flat_df.empty:
+        #             common_df = pd.concat([common_df,cur_flat_df])   
+        #             if DEBUG:
+        #                 print('success concat')                             
+        # common_df.to_csv(path_to_data, index=False)

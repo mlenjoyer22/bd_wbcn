@@ -61,7 +61,10 @@ class WebDriver:
 def get_count_spaces(driver):   
     driver.get(start_url)
     soup = BeautifulSoup(driver.page_source, 'lxml')
-    count_spaces = int(''.join(re.sub(r'\<[^>]*\>', '', str(soup.find('h5'))).split(' ')[1:-1]))
+    #count_spaces = int(''.join(re.sub(r'\<[^>]*\>', '', str(soup.find('h5'))).split(' ')[1:-1]))
+    count_spaces = int(re.findall('(\s+([0-9]+\s+)+)', soup.find("h5", 
+            {"class":"_32bbee5fda--color_black_100--kPHhJ _32bbee5fda--lineHeight_20px--tUURJ _32bbee5fda--fontWeight_bold--ePDnv _32bbee5fda--fontSize_14px--TCfeJ _32bbee5fda--display_block--pDAEx _32bbee5fda--text--g9xAG _32bbee5fda--text_letterSpacing__normal--xbqP6"}).text
+                )[0][0].replace(' ', ''))
     return count_spaces
 
 def get_all_links(driver,url, spaces, count, debug=False):
@@ -80,8 +83,8 @@ def get_all_links(driver,url, spaces, count, debug=False):
         logging.info(f"Got {diff} offer on this page,\nleft {math.ceil((count - len(spaces))/diff)} pages")
     return len(spaces)
 
-def get_all_spaces(driver, count):
-    count_spaces = get_count_spaces(driver)
+def get_all_spaces(driver,count_spaces, count):
+    #count_spaces = get_count_spaces(driver)
     current_url = start_url
     spaces = set()
     spaces_at_page = get_all_links(driver, current_url, spaces, count, DEBUG)
@@ -179,11 +182,14 @@ def _pipelineCI():
     logging.info('Program has started. We will get actual spaces for rent from cian')
     common_df = pd.DataFrame()
     with WebDriver() as driver:
-        count_spaces = get_count_spaces(driver)
+        try:
+            count_spaces = get_count_spaces(driver)
+        except:
+            count_spaces = AIM_COUNT
         if (DEBUG):
             logging.info(f"Got {count_spaces} spaces")
         time.sleep(1)
-        list_spaces = get_all_spaces(driver, AIM_COUNT)        
+        list_spaces = get_all_spaces(driver, count_spaces, AIM_COUNT)        
         cur_flat_df = pd.DataFrame()
         for space in list_spaces:            
             time.sleep(1)
@@ -209,12 +215,12 @@ with DAG(
 ) as dag:
 
     wb_parsing=PythonOperator(
-        task_id = 'pipeline',
+        task_id = 'WBpipeline',
         python_callable=_pipelineWB,
     )
 
     ci_parsing=PythonOperator(
-        task_id = 'pipeline',
+        task_id = 'CIpipeline',
         python_callable=_pipelineCI,
     )
-    wb_parsing > _pipelineCI
+    wb_parsing >> ci_parsing
