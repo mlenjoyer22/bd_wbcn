@@ -2,23 +2,25 @@ from bs4 import BeautifulSoup
 import json
 import time
 import re
-from selenium import webdriver
 from selenium.webdriver.support import expected_conditions as EC
 from fake_useragent import UserAgent
 import math
 import pandas as pd
 import locale
-from tqdm.contrib.concurrent import process_map 
-from tqdm.notebook import tqdm as log_progress
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 # - это нужно чтобы единообразно обрабатывать даты обновления объявлений, такие как "сегодня" и "вчера"
 locale.setlocale(locale.LC_TIME, 'ru_RU.UTF-8')
 
 
 class WebDriver:
     def __init__(self):
-        chrome_options = webdriver.ChromeOptions()
-        self.driver = webdriver.Chrome( options=chrome_options)            
+        chrome_options = Options()
+        chrome_options.add_argument("--no-sandbox")
+        #chrome_options.add_argument("--headless")
+        self.driver = webdriver.Chrome(options=chrome_options) 
+        # chrome_options = webdriver.ChromeOptions()
+        # self.driver = webdriver.Chrome( options=chrome_options)            
 
     def __enter__(self):
         return self.driver
@@ -44,10 +46,11 @@ start_url = 'https://www.cian.ru/cat.php?deal_type=rent&engine_version=2&foot_mi
 # OK      
 def get_count_spaces(driver):   
     driver.get(start_url)
-    soup = BeautifulSoup(driver.page_source, 'lxml')    
-    count_spaces = int(re.findall('(\s+([0-9]+\s+)+)', soup.find("h5").text
-                )[0][0].replace(' ', ''))
-    #print(count_spaces)
+    soup = BeautifulSoup(driver.page_source, 'html')    
+    #count_spaces = int(re.findall('(\s+([0-9]+\s+)+)', soup.find("h5").text
+    #            )[0][0].replace(' ', ''))
+    count_spaces = int(re.findall('(\s+([0-9]+\s+)+)', soup.find("h5").text)[0][0].replace(' ', ''))
+    print(count_spaces)
     #count_spaces = int(''.join(re.sub(r'\<[^>]*\>', '', str(soup.find('h5'))).split(' ')[1:-1]))
     return count_spaces
 
